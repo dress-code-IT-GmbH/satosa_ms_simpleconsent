@@ -1,0 +1,2 @@
+from .simpleconsent import SimpleConsent
+
