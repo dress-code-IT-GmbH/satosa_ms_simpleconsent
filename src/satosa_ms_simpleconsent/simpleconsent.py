@@ -17,7 +17,6 @@ import hmac
 import json
 import logging
 import pickle
-import sys
 import urllib.parse
 
 import requests
@@ -123,6 +122,7 @@ class SimpleConsent(ResponseMicroService):
         internal_resp_ser = base64.b64decode(context.state[CONSENT_INT_DATA].encode('ascii'))
         internal_response = pickle.loads(internal_resp_ser)
         consent_id = context.state[CONSENT_ID]
+        logging.debug(f"SimpleConsent microservide: consent id {consent_id}")
 
         try:
             consent_given = self._verify_consent(internal_response.requester, consent_id)
@@ -176,15 +176,19 @@ class SimpleConsent(ResponseMicroService):
             logging.debug(f"SimpleConsent microservice: starting redirect to request consent")
             # save internal response
             internal_resp_ser = pickle.dumps(internal_resp)
+            try:
+                _ = pickle.loads(internal_resp_ser)
+            except RecursionError as e:
+                raise RecursionError(f"Unpatched SATOSA? Unpickling failed immediately after pickling: {str(e)}")
+
             context.state[CONSENT_INT_DATA] = base64.b64encode(internal_resp_ser).decode('ascii')
+            logging.debug(f"SimpleConsent microservide: sending consent id {consent_id}")
             # create request object & redirect
             consent_requ_json = self._make_consent_request(response_state, consent_id, internal_resp.attributes)
             hmac_str = hmac.new(self.proxy_hmac_key, consent_requ_json.encode('utf-8'), hashlib.sha256).hexdigest()
             consent_requ_b64 = base64.urlsafe_b64encode(consent_requ_json.encode('ascii')).decode('ascii')
             redirecturl = f"{self.request_consent_url}/{urllib.parse.quote_plus(consent_requ_b64)}/{hmac_str}/"
             return satosa.response.Redirect(redirecturl)
-
-        return super().process(context, internal_resp)
 
     def _make_consent_request(self, response_state: dict, consent_id: str, attr: list) -> dict:
         display_attr: set = set.difference(set(attr), set(self.consent_attr_not_displayed))
